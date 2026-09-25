@@ -31,7 +31,7 @@ cask "chatokf" do
   # build to offer.
   depends_on arch: :arm64
   # project.yml sets the macOS deployment target to 15.0.
-  depends_on macos: ">= :sequoia"
+  depends_on macos: :sequoia
 
   app "ChatOKF.app"
 
