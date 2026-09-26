@@ -1,0 +1,96 @@
+# Write ChatOKF's released version and digest into Casks/chatokf.rb.
+#
+# THE TRIGGER IS THIS REPO'S OWN TAG. Release ChatOKF, then tag this repo
+# with the same v tag:
+#
+#     git -C ../ChatOKF tag v26.09.26 && git -C ../ChatOKF push origin v26.09.26
+#     git tag v26.09.26 && git push origin v26.09.26
+#
+# A tag is used rather than a schedule or a push from the other repo
+# because a schedule is disabled after sixty days of quiet in a repo as
+# still as this one, and a cross-repo push needs a write token for THIS
+# repository stored as a secret in a PUBLIC one. The tag needs neither:
+# the workflow runs here, reads a public release through the API, and
+# commits with the token Actions already provides.
+#
+# It refuses to write if this repo's tag and ChatOKF's latest release
+# disagree, so the cask cannot end up naming one release and describing
+# another.
+
+name: cask
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cask
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      # The tag checkout is detached; the commit has to land on main.
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Point the cask at ChatOKF's latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          rel=$(gh api repos/leok7v/ChatOKF/releases/latest)
+          tag=$(printf '%s' "$rel" | jq -r .tag_name)
+          version=${tag#v}
+
+          # On a tag run the two repositories must agree. On a manual run
+          # there is no tag to compare, and the release is the authority.
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] &&
+             [ "$GITHUB_REF_NAME" != "$tag" ]; then
+            echo "FAIL: this repo is tagged $GITHUB_REF_NAME but ChatOKF's"
+            echo "      latest release is $tag. Release ChatOKF first, or"
+            echo "      delete this tag and tag both with the same name."
+            exit 1
+          fi
+
+          # The digest is READ from the .sha256 the release job published
+          # beside the image, never computed here: the cask then names
+          # what that run measured, and a mismatch means the asset was
+          # replaced rather than that two tools disagree.
+          url=$(printf '%s' "$rel" |
+                jq -r '.assets[] | select(.name=="ChatOKF.dmg.sha256")
+                       | .browser_download_url')
+          if [ -z "$url" ] || [ "$url" = "null" ]; then
+            echo "FAIL: release $tag publishes no ChatOKF.dmg.sha256"
+            exit 1
+          fi
+          sha=$(curl -sfL "$url" | cut -d' ' -f1)
+          case "$sha" in
+            [0-9a-f]*) : ;;
+            *) echo "FAIL: no digest at $url"; exit 1 ;;
+          esac
+          echo "ChatOKF $tag, digest $sha"
+
+          sed -i "s/^  version \".*\"$/  version \"$version\"/" \
+            Casks/chatokf.rb
+          sed -i "s/^  sha256 \".*\"$/  sha256 \"$sha\"/" \
+            Casks/chatokf.rb
+          ruby -c Casks/chatokf.rb
+
+          if git diff --quiet Casks/chatokf.rb; then
+            echo "the cask already names $version and that digest"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email \
+              "41898282+github-actions[bot]@users.noreply.github.com"
+            git add Casks/chatokf.rb
+            git commit -m "cask: $tag"
+            git push origin main
+          fi
