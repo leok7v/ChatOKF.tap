@@ -15,14 +15,16 @@ reason: `brew tap` clones the whole repository, and ChatOKF carries a
 its PATH, so cloning ChatOKF as a tap fails outright, and where it
 succeeds it would fetch the model to obtain one small Ruby file.
 
-Nothing here needs updating when ChatOKF is released. The cask points
-at GitHub's "latest release" redirect, so a new tag changes what it
-downloads on its own, with no schedule and no token.
+`brew upgrade` moves you to a newer release, and `brew outdated` says
+when there is one. The cask names a version and a digest, so Homebrew
+can compare them.
 
-The cost is that Homebrew cannot tell one version from another, so
-`brew upgrade` skips it. To move to a newer release:
-
-    brew reinstall --cask chatokf
+Those two lines are written by `.github/workflows/cask.yml`, never by
+hand. Release ChatOKF, then tag THIS repository with the same `v` tag:
+that tag runs the workflow, which reads ChatOKF's latest release and the
+digest published beside the disk image, and commits the result here. If
+the two tags disagree the run fails rather than writing, so the cask
+cannot name one release and describe another.
 
 Apple Silicon and macOS 15 or newer. The app is signed with a Developer
 ID certificate, notarized and stapled, so Gatekeeper accepts it even
